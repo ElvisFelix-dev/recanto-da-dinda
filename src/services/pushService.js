@@ -12,7 +12,7 @@ function configureVapid() {
   vapidConfigured = true
   return true
 }
-
+ 
 export function getVapidPublicKey() {
   return process.env.VAPID_PUBLIC_KEY || ''
 }
