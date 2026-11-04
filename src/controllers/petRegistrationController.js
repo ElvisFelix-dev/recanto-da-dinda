@@ -3,6 +3,8 @@ import { petRegistrationSchema } from '../validators/petRegistration.validator.j
 import { registerPet } from '../services/petRegistrationService.js'
 import { cloudinary } from '../middlewares/petVaccinationUpload.js'
 import { notifyAdminRoles } from '../services/notificationService.js'
+import Guardian from '../models/Guardian.js'
+import { sendPetRegistrationReceivedEmail, sendAdminNewPetRegistrationEmail } from '../services/communicationService.js'
 
 async function removeUploadedFiles(files = []) {
   await Promise.allSettled(
@@ -104,6 +106,15 @@ export async function createPetRegistration(req, res, next) {
     }).catch((notificationError) => {
       console.error('[NOTIFICATIONS] Não foi possível notificar a equipe:', notificationError.message)
     })
+
+    // E-mails são enviados em segundo plano lógico: falhas de comunicação não desfazem o cadastro.
+    const savedGuardian = await Guardian.findById(createdPet.guardian).select('name email')
+    if (savedGuardian) {
+      await Promise.allSettled([
+        sendPetRegistrationReceivedEmail({ pet: createdPet, guardian: savedGuardian }),
+        sendAdminNewPetRegistrationEmail({ pet: createdPet, guardian: savedGuardian }),
+      ])
+    }
 
     return res.status(201).json({
       success: true,

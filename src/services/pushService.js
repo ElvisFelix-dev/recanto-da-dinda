@@ -12,13 +12,21 @@ function configureVapid() {
   vapidConfigured = true
   return true
 }
- 
+
 export function getVapidPublicKey() {
   return process.env.VAPID_PUBLIC_KEY || ''
 }
 
-export async function savePushSubscription(adminId, subscription, userAgent = '') {
-  if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
+export async function savePushSubscription(
+  adminId,
+  subscription,
+  userAgent = '',
+) {
+  if (
+    !subscription?.endpoint ||
+    !subscription?.keys?.p256dh ||
+    !subscription?.keys?.auth
+  ) {
     throw new Error('Assinatura push inválida.')
   }
 
@@ -45,29 +53,40 @@ export async function removePushSubscription(adminId, endpoint) {
 export async function sendPushToRoles(roles, payload) {
   if (!configureVapid()) return { sent: 0, skipped: true }
 
-  const admins = await Admin.find({ role: { $in: roles }, isActive: true }).select('_id')
+  const admins = await Admin.find({
+    role: { $in: roles },
+    isActive: true,
+  }).select('_id')
   const adminIds = admins.map((admin) => admin._id)
   if (!adminIds.length) return { sent: 0 }
 
-  const subscriptions = await PushSubscription.find({ admin: { $in: adminIds } })
+  const subscriptions = await PushSubscription.find({
+    admin: { $in: adminIds },
+  })
   let sent = 0
 
-  await Promise.all(subscriptions.map(async (item) => {
-    try {
-      await webpush.sendNotification(
-        { endpoint: item.endpoint, expirationTime: item.expirationTime, keys: item.keys },
-        JSON.stringify(payload),
-        { TTL: 60 * 60 },
-      )
-      sent += 1
-    } catch (error) {
-      if (error.statusCode === 404 || error.statusCode === 410) {
-        await PushSubscription.deleteOne({ _id: item._id })
-      } else {
-        console.error('[WEB PUSH] Falha no envio:', error.message)
+  await Promise.all(
+    subscriptions.map(async (item) => {
+      try {
+        await webpush.sendNotification(
+          {
+            endpoint: item.endpoint,
+            expirationTime: item.expirationTime,
+            keys: item.keys,
+          },
+          JSON.stringify(payload),
+          { TTL: 60 * 60 },
+        )
+        sent += 1
+      } catch (error) {
+        if (error.statusCode === 404 || error.statusCode === 410) {
+          await PushSubscription.deleteOne({ _id: item._id })
+        } else {
+          console.error('[WEB PUSH] Falha no envio:', error.message)
+        }
       }
-    }
-  }))
+    }),
+  )
 
   return { sent }
 }
