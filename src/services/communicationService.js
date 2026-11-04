@@ -56,24 +56,73 @@ async function deliverBrevoEmail({ pet, guardian = null, recipient, recipientNam
   }
 }
 
+
+function premiumEmailTemplate({ eyebrow = 'RECANTO DA DINDA', title, greeting, body, accent = '#c99b54', preheader = '' }) {
+  return `<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title>${escapeHtml(title)}</title></head>
+<body style="margin:0;padding:0;background:#f2f5f1;font-family:Arial,Helvetica,sans-serif;color:#26372e;">
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">${escapeHtml(preheader)}</div>
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f2f5f1;padding:32px 12px;">
+    <tr><td align="center">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600" style="width:100%;max-width:600px;background:#ffffff;border-radius:20px;overflow:hidden;">
+        <tr><td style="background:#173f32;padding:30px 36px 28px;border-bottom:4px solid ${accent};">
+          <div style="font-size:11px;line-height:1.4;letter-spacing:3px;font-weight:700;color:#dce9df;">${eyebrow}</div>
+          <div style="font-size:26px;line-height:1.25;font-weight:700;color:#ffffff;margin-top:14px;">${title}</div>
+          <div style="font-size:13px;line-height:1.6;color:#dce9df;margin-top:8px;">Cuidado, carinho e confiança em cada detalhe.</div>
+        </td></tr>
+        <tr><td style="padding:34px 36px 30px;">
+          <p style="font-size:16px;line-height:1.7;margin:0 0 18px;">${greeting}</p>
+          <div style="font-size:15px;line-height:1.8;color:#43534a;">${body}</div>
+          <p style="font-size:15px;line-height:1.7;margin:28px 0 0;color:#43534a;">Com carinho,<br><strong style="color:#173f32;">Equipe Recanto da Dinda</strong></p>
+        </td></tr>
+        <tr><td style="background:#f7f8f5;border-top:1px solid #e8ede7;padding:20px 36px;">
+          <p style="font-size:11px;line-height:1.7;color:#7b887f;margin:0;">Esta é uma mensagem automática relacionada ao cadastro do seu pet. Caso precise de ajuda, entre em contato com a equipe do Recanto da Dinda.</p>
+          <p style="font-size:10px;letter-spacing:1.5px;font-weight:700;color:#8b9a8f;margin:12px 0 0;">RECANTO DA DINDA · CUIDADO COM AMOR</p>
+        </td></tr>
+      </table>
+      <div style="font-size:10px;line-height:1.5;color:#9aa59d;padding:16px 10px;">Você recebeu este e-mail porque um cadastro foi realizado ou atualizado em nosso sistema.</div>
+    </td></tr>
+  </table>
+</body></html>`
+}
+
 export async function sendRegistrationEmails({ pet, guardian }) {
   const tutorName = escapeHtml(guardian?.name || 'Tutor')
   const petName = escapeHtml(pet?.name || 'seu pet')
-  const base = `<div style="max-width:600px;margin:auto;background:#fff;border-radius:18px;overflow:hidden;font-family:Arial,sans-serif;color:#26372e"><div style="background:#173f32;padding:28px 32px;color:#fff"><div style="font-size:13px;letter-spacing:2px;color:#dcebe0">RECANTO DA DINDA</div><h1 style="font-size:24px;margin:12px 0 0">Cadastro recebido! 🐾</h1></div><div style="padding:32px"><p>Olá, ${tutorName}!</p><p>Recebemos o cadastro de <strong>${petName}</strong> e ele já está aguardando a análise da nossa equipe.</p><p>Assim que houver uma atualização, entraremos em contato por e-mail.</p><p style="margin-top:28px">Com carinho,<br><strong>Equipe Recanto da Dinda</strong></p></div></div>`
+  console.info(`[BREVO] Iniciando e-mails de novo cadastro. pet=${pet?._id || 'n/a'}`)
+
+  const tutorHtml = premiumEmailTemplate({
+    title: 'Cadastro recebido com sucesso!',
+    greeting: `Olá, <strong>${tutorName}</strong>!`,
+    preheader: `Recebemos o cadastro de ${petName}.`,
+    body: `<p style="margin:0 0 16px;">Recebemos os dados de <strong style="color:#173f32;">${petName}</strong>. O cadastro foi registrado e agora está aguardando a análise da nossa equipe.</p><div style="margin:22px 0;padding:18px 20px;background:#f4f7f2;border-left:3px solid #c99b54;border-radius:8px;"><div style="font-size:11px;letter-spacing:1px;color:#77857b;text-transform:uppercase;">Próxima etapa</div><div style="font-size:15px;font-weight:700;color:#173f32;margin-top:6px;">Análise da equipe</div><div style="font-size:13px;color:#657369;line-height:1.6;margin-top:5px;">Assim que houver uma atualização, enviaremos uma nova mensagem para você.</div></div><p style="margin:0;">Agradecemos por escolher o Recanto da Dinda para fazer parte da rotina do seu melhor amigo.</p>`,
+  })
   const tutorResult = await deliverBrevoEmail({
     pet, guardian, recipient: guardian?.email, recipientName: guardian?.name,
-    event: 'registration_received', subject: `Recebemos o cadastro de ${pet.name}! 🐾`, htmlContent: base,
+    event: 'registration_received',
+    subject: `Cadastro recebido: ${pet.name} | Recanto da Dinda`,
+    htmlContent: tutorHtml,
     dedupeKey: `pet:${pet._id}:registration_received`,
   })
 
   const admins = await Admin.find({ role: { $in: ['admin', 'manager'] }, isActive: true }).select('name email').lean()
-  const adminResults = await Promise.all(admins.map((admin) => deliverBrevoEmail({
-    pet, guardian, recipient: admin.email, recipientName: admin.name,
-    event: 'new_registration_admin', subject: `Novo cadastro aguardando análise: ${pet.name}`,
-    htmlContent: `<div style="font-family:Arial,sans-serif;color:#26372e"><h2>Novo cadastro recebido</h2><p>Um novo pet foi cadastrado e aguarda análise no painel do Recanto da Dinda.</p><p><strong>Pet:</strong> ${petName}<br><strong>Tutor:</strong> ${tutorName}<br><strong>E-mail do tutor:</strong> ${escapeHtml(guardian?.email || 'Não informado')}</p><p>Acesse o painel administrativo para revisar o cadastro.</p></div>`,
-    dedupeKey: `pet:${pet._id}:new_registration_admin:${admin._id}`,
-  })))
-  if (!admins.length) console.warn('[BREVO] Nenhum admin/gerente ativo encontrado para aviso de novo cadastro.')
+  const adminResults = await Promise.all(admins.map((admin) => {
+    const adminHtml = premiumEmailTemplate({
+      title: 'Novo cadastro aguardando análise',
+      greeting: `Olá, <strong>${escapeHtml(admin.name || 'equipe')}</strong>.`,
+      preheader: `${petName} acabou de ser cadastrado.`,
+      body: `<p style="margin:0 0 18px;">Um novo pet foi cadastrado no Recanto da Dinda e aguarda revisão administrativa.</p><table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;background:#f6f8f5;border:1px solid #e7ece6;border-radius:10px;"><tr><td style="padding:12px 16px;font-size:12px;color:#7b887f;">PET</td><td style="padding:12px 16px;font-size:14px;font-weight:700;color:#173f32;text-align:right;">${petName}</td></tr><tr><td style="padding:12px 16px;border-top:1px solid #e7ece6;font-size:12px;color:#7b887f;">TUTOR</td><td style="padding:12px 16px;border-top:1px solid #e7ece6;font-size:14px;color:#26372e;text-align:right;">${tutorName}</td></tr><tr><td style="padding:12px 16px;border-top:1px solid #e7ece6;font-size:12px;color:#7b887f;">E-MAIL</td><td style="padding:12px 16px;border-top:1px solid #e7ece6;font-size:13px;color:#26372e;text-align:right;">${escapeHtml(guardian?.email || 'Não informado')}</td></tr></table><p style="margin:18px 0 0;">Acesse o painel administrativo do Recanto da Dinda para conferir os dados e documentos enviados.</p>`,
+    })
+    return deliverBrevoEmail({
+      pet, guardian, recipient: admin.email, recipientName: admin.name,
+      event: 'new_registration_admin',
+      subject: `Novo cadastro para análise: ${pet.name}`,
+      htmlContent: adminHtml,
+      dedupeKey: `pet:${pet._id}:new_registration_admin:${admin._id}`,
+    })
+  }))
+  if (!admins.length) console.warn('[BREVO] Nenhum administrador/gerente ativo encontrado para o aviso de novo cadastro.')
   return { tutor: tutorResult, admins: adminResults }
 }
 
@@ -83,55 +132,38 @@ export async function sendPetStatusEmail({ pet, guardian, status, notes = '' }) 
   const recipient = emailRecipient || 'não informado'
   const dedupeKey = `pet:${pet._id}:${event}:${pet.reviewedAt?.getTime?.() || Date.now()}`
 
-  if (!emailRecipient) {
-    await saveLog({ pet: pet._id, guardian: guardian?._id, channel: 'email', event, recipient, status: 'skipped', provider: 'brevo', error: 'Tutor sem e-mail cadastrado.', dedupeKey })
-    return { status: 'skipped', reason: 'Tutor sem e-mail cadastrado.' }
-  }
+  console.info(`[BREVO] Iniciando comunicação de status. pet=${pet?._id || 'n/a'} status=${status} destinatario=${recipient}`)
 
-  if (!process.env.BREVO_API_KEY || !process.env.BREVO_SENDER_EMAIL) {
-    await saveLog({ pet: pet._id, guardian: guardian?._id, channel: 'email', event, recipient, status: 'skipped', provider: 'brevo', error: 'Brevo não configurado no ambiente.', dedupeKey })
-    return { status: 'skipped', reason: 'Brevo não configurado.' }
+  if (!emailRecipient) {
+    const reason = 'Tutor sem e-mail cadastrado.'
+    await saveLog({ pet: pet._id, guardian: guardian?._id || null, channel: 'email', event, recipient, status: 'skipped', provider: 'brevo', error: reason, dedupeKey })
+    console.warn(`[BREVO] Envio ignorado (${event}): ${reason}`)
+    return { status: 'skipped', reason }
   }
 
   const approved = status === 'approved'
-  const tutorName = escapeHtml(guardian.name || 'Tutor')
-  const petName = escapeHtml(pet.name || 'seu pet')
+  const tutorName = escapeHtml(guardian?.name || 'Tutor')
+  const petName = escapeHtml(pet?.name || 'seu pet')
   const safeNotes = escapeHtml(notes)
-  const subject = approved
-    ? `Boas notícias! O cadastro de ${pet.name} foi aprovado 🐾`
-    : `Atualização sobre o cadastro de ${pet.name} — Recanto da Dinda`
-  const content = approved
-    ? `<p>Temos uma ótima notícia: o cadastro de <strong>${petName}</strong> foi aprovado pela equipe do Recanto da Dinda!</p><p>Estamos muito felizes em recebê-lo em nossa família. Em breve, nossa equipe poderá entrar em contato para orientar sobre os próximos passos.</p>`
-    : `<p>Após analisar o cadastro de <strong>${petName}</strong>, nossa equipe não conseguiu aprová-lo neste momento.</p>${safeNotes ? `<p><strong>Motivo informado:</strong> ${safeNotes}</p>` : ''}<p>Se precisar de esclarecimentos, entre em contato com nossa equipe.</p>`
-  const htmlContent = `<!doctype html><html lang="pt-BR"><body style="margin:0;background:#f5f7f3;padding:32px 12px;font-family:Arial,sans-serif;color:#26372e"><div style="max-width:600px;margin:auto;background:#fff;border-radius:18px;overflow:hidden"><div style="background:#173f32;padding:28px 32px;color:#fff"><div style="font-size:13px;letter-spacing:2px;color:#dcebe0">RECANTO DA DINDA</div><h1 style="font-size:24px;margin:12px 0 0">${approved ? 'Que alegria! 🐾' : 'Atualização do cadastro'}</h1></div><div style="padding:32px"><p>Olá, ${tutorName}!</p>${content}<p style="margin-top:28px">Com carinho,<br><strong>Equipe Recanto da Dinda</strong></p></div><div style="padding:18px 32px;background:#f5f7f3;color:#718078;font-size:12px">Esta é uma mensagem automática sobre o cadastro do seu pet.</div></div></body></html>`
+  const htmlContent = premiumEmailTemplate({
+    title: approved ? 'Temos uma ótima notícia!' : 'Atualização sobre o cadastro',
+    greeting: `Olá, <strong>${tutorName}</strong>!`,
+    accent: approved ? '#c99b54' : '#b66b57',
+    preheader: approved ? `O cadastro de ${petName} foi aprovado.` : `Há uma atualização sobre o cadastro de ${petName}.`,
+    body: approved
+      ? `<div style="margin:0 0 20px;padding:20px;background:#f1f7f1;border:1px solid #dceadd;border-radius:12px;"><div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#66816c;">Cadastro aprovado</div><div style="font-size:21px;line-height:1.35;font-weight:700;color:#173f32;margin-top:7px;">${petName} agora faz parte da nossa família!</div></div><p style="margin:0 0 16px;">É com muita alegria que informamos que o cadastro de <strong>${petName}</strong> foi aprovado pela equipe do Recanto da Dinda.</p><p style="margin:0;">Estamos muito felizes em receber vocês. Nossa equipe poderá entrar em contato para orientar sobre os próximos passos.</p>`
+      : `<p style="margin:0 0 16px;">Após analisar o cadastro de <strong>${petName}</strong>, nossa equipe não conseguiu aprová-lo neste momento.</p>${safeNotes ? `<div style="margin:20px 0;padding:18px 20px;background:#fbf5f2;border-left:3px solid #b66b57;border-radius:8px;"><div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#956b60;font-weight:700;">Observação da equipe</div><div style="font-size:14px;line-height:1.7;color:#5a463f;margin-top:7px;white-space:pre-line;">${safeNotes}</div></div>` : ''}<p style="margin:0;">Se precisar de esclarecimentos ou desejar conversar sobre o cadastro, entre em contato com nossa equipe.</p>`,
+  })
 
-  try {
-    const response = await fetch(BREVO_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        accept: 'application/json',
-        'api-key': process.env.BREVO_API_KEY,
-        'content-type': 'application/json',
-      },
-      signal: AbortSignal.timeout(10000),
-      body: JSON.stringify({
-        sender: { name: process.env.BREVO_SENDER_NAME || 'Recanto da Dinda', email: process.env.BREVO_SENDER_EMAIL },
-        to: [{ email: recipient, name: guardian.name || 'Tutor' }],
-        subject,
-        htmlContent,
-        tags: ['recanto-dinda', event],
-      }),
-    })
-    const result = await response.json().catch(() => ({}))
-    if (!response.ok) throw new Error(result.message || `Brevo respondeu com HTTP ${response.status}.`)
-
-    await saveLog({ pet: pet._id, guardian: guardian?._id, channel: 'email', event, recipient, status: 'sent', provider: 'brevo', providerMessageId: result.messageId || '', dedupeKey })
-    return { status: 'sent', providerMessageId: result.messageId || '' }
-  } catch (error) {
-    await saveLog({ pet: pet._id, guardian: guardian?._id, channel: 'email', event, recipient, status: 'failed', provider: 'brevo', error: error.message, dedupeKey })
-    console.error('[BREVO] Falha ao enviar e-mail:', error.message)
-    return { status: 'failed', reason: error.message }
-  }
+  return deliverBrevoEmail({
+    pet, guardian, recipient: emailRecipient, recipientName: guardian?.name,
+    event,
+    subject: approved
+      ? `Cadastro aprovado: ${pet.name} | Recanto da Dinda`
+      : `Atualização do cadastro: ${pet.name} | Recanto da Dinda`,
+    htmlContent,
+    dedupeKey,
+  })
 }
 
 function normalizeBrazilPhone(phone = '') {

@@ -109,7 +109,18 @@ export async function changeRegistrationStatus(req, res, next) {
     }
 
     const previousPet = await Pet.findById(req.params.id).select('status name')
-    const statusChanged = previousPet?.status !== status
+    if (!previousPet) {
+      return res.status(404).json({
+        success: false,
+        message: 'Cadastro não encontrado.',
+      })
+    }
+    const previousStatus = previousPet.status
+    const statusChanged = previousStatus !== status
+
+    console.info(
+      `[PET STATUS] Solicitação recebida. pet=${req.params.id} de=${previousStatus} para=${status} admin=${req.admin?._id || 'n/a'}`,
+    )
 
     const registration = await updatePetRegistrationStatus({
       petId: req.params.id,
@@ -136,13 +147,26 @@ export async function changeRegistrationStatus(req, res, next) {
 
     let communication = null
     if (statusChanged && (status === 'approved' || status === 'rejected')) {
-      const petWithGuardian = await Pet.findById(registration._id).populate('guardian', 'name email phone whatsappConsent')
-      communication = await sendPetStatusEmail({
-        pet: petWithGuardian,
-        guardian: petWithGuardian?.guardian,
-        status,
-        notes: notes.trim(),
-      })
+      console.info(`[PET STATUS] Status alterado. Iniciando e-mail de ${status} para pet=${registration._id}.`)
+      try {
+        const petWithGuardian = await Pet.findById(registration._id)
+          .populate('guardian', 'name email phone whatsappConsent')
+
+        if (!petWithGuardian) {
+          throw new Error('Pet não encontrado após atualização do status.')
+        }
+
+        communication = await sendPetStatusEmail({
+          pet: petWithGuardian,
+          guardian: petWithGuardian.guardian,
+          status,
+          notes: notes.trim(),
+        })
+        console.info(`[PET STATUS] Resultado do e-mail. pet=${registration._id} status=${communication?.status || 'unknown'}${communication?.reason ? ` motivo=${communication.reason}` : ''}`)
+      } catch (emailError) {
+        communication = { status: 'failed', reason: emailError.message }
+        console.error(`[PET STATUS] Falha inesperada na comunicação por e-mail. pet=${registration._id}:`, emailError)
+      }
 
       await notifyAdminRoles({
         roles: ['admin', 'manager'],
@@ -154,6 +178,8 @@ export async function changeRegistrationStatus(req, res, next) {
         link: `/admin/cadastros/${registration._id}`,
         dedupeKey: `pet:${registration._id}:status:${status}:${registration.reviewedAt?.getTime?.() || Date.now()}`,
       }).catch((notificationError) => console.error('[NOTIFICATIONS] Falha ao notificar status:', notificationError.message))
+    } else if (!statusChanged) {
+      console.info(`[PET STATUS] Nenhuma mudança de status detectada. E-mail não reenviado. pet=${registration._id} status=${status}`)
     }
 
     return res.json({
