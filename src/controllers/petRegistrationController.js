@@ -3,8 +3,8 @@ import { petRegistrationSchema } from '../validators/petRegistration.validator.j
 import { registerPet } from '../services/petRegistrationService.js'
 import { cloudinary } from '../middlewares/petVaccinationUpload.js'
 import { notifyAdminRoles } from '../services/notificationService.js'
+import { sendRegistrationEmails } from '../services/communicationService.js'
 import Guardian from '../models/Guardian.js'
-import { sendPetRegistrationReceivedEmail, sendAdminNewPetRegistrationEmail } from '../services/communicationService.js'
 
 async function removeUploadedFiles(files = []) {
   await Promise.allSettled(
@@ -107,13 +107,14 @@ export async function createPetRegistration(req, res, next) {
       console.error('[NOTIFICATIONS] Não foi possível notificar a equipe:', notificationError.message)
     })
 
-    // E-mails são enviados em segundo plano lógico: falhas de comunicação não desfazem o cadastro.
-    const savedGuardian = await Guardian.findById(createdPet.guardian).select('name email')
+    // E-mails são disparados após a persistência do cadastro; falhas não cancelam o cadastro.
+    const savedGuardian = await Guardian.findById(createdPet.guardian).select('name email').lean()
     if (savedGuardian) {
-      await Promise.allSettled([
-        sendPetRegistrationReceivedEmail({ pet: createdPet, guardian: savedGuardian }),
-        sendAdminNewPetRegistrationEmail({ pet: createdPet, guardian: savedGuardian }),
-      ])
+      await sendRegistrationEmails({ pet: createdPet, guardian: savedGuardian }).catch((emailError) => {
+        console.error('[BREVO] Erro inesperado no fluxo de e-mails do novo cadastro:', emailError.message)
+      })
+    } else {
+      console.error('[BREVO] Tutor não encontrado para enviar e-mails do novo cadastro:', createdPet.guardian)
     }
 
     return res.status(201).json({

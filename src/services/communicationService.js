@@ -1,4 +1,5 @@
 import CommunicationLog from '../models/CommunicationLog.js'
+import Admin from '../models/Admin.js'
 
 const BREVO_ENDPOINT = 'https://api.brevo.com/v3/smtp/email'
 
@@ -16,6 +17,64 @@ async function saveLog(data) {
     console.error('[COMMUNICATION LOG]', error.message)
     return null
   }
+}
+
+
+async function deliverBrevoEmail({ pet, guardian = null, recipient, recipientName, event, subject, htmlContent, dedupeKey }) {
+  if (!recipient) {
+    await saveLog({ pet: pet._id, guardian: guardian?._id || null, channel: 'email', event, recipient: 'não informado', status: 'skipped', provider: 'brevo', error: 'Destinatário sem e-mail cadastrado.', dedupeKey })
+    return { status: 'skipped', reason: 'Destinatário sem e-mail cadastrado.' }
+  }
+  if (!process.env.BREVO_API_KEY || !process.env.BREVO_SENDER_EMAIL) {
+    const reason = 'Brevo não configurado: verifique BREVO_API_KEY e BREVO_SENDER_EMAIL no Render.'
+    await saveLog({ pet: pet._id, guardian: guardian?._id || null, channel: 'email', event, recipient, status: 'skipped', provider: 'brevo', error: reason, dedupeKey })
+    console.error('[BREVO]', reason)
+    return { status: 'skipped', reason }
+  }
+  try {
+    const response = await fetch(BREVO_ENDPOINT, {
+      method: 'POST',
+      headers: { accept: 'application/json', 'api-key': process.env.BREVO_API_KEY, 'content-type': 'application/json' },
+      signal: AbortSignal.timeout(15000),
+      body: JSON.stringify({
+        sender: { name: process.env.BREVO_SENDER_NAME || 'Recanto da Dinda', email: process.env.BREVO_SENDER_EMAIL },
+        to: [{ email: recipient, name: recipientName || recipient }],
+        subject,
+        htmlContent,
+        tags: ['recanto-dinda', event],
+      }),
+    })
+    const result = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(result.message || result.code || `Brevo respondeu com HTTP ${response.status}.`)
+    await saveLog({ pet: pet._id, guardian: guardian?._id || null, channel: 'email', event, recipient, status: 'sent', provider: 'brevo', providerMessageId: result.messageId || '', dedupeKey })
+    console.info(`[BREVO] E-mail aceito para ${recipient} (${event}). messageId=${result.messageId || 'n/a'}`)
+    return { status: 'sent', providerMessageId: result.messageId || '' }
+  } catch (error) {
+    await saveLog({ pet: pet._id, guardian: guardian?._id || null, channel: 'email', event, recipient, status: 'failed', provider: 'brevo', error: error.message, dedupeKey })
+    console.error(`[BREVO] Falha no envio para ${recipient} (${event}):`, error.message)
+    return { status: 'failed', reason: error.message }
+  }
+}
+
+export async function sendRegistrationEmails({ pet, guardian }) {
+  const tutorName = escapeHtml(guardian?.name || 'Tutor')
+  const petName = escapeHtml(pet?.name || 'seu pet')
+  const base = `<div style="max-width:600px;margin:auto;background:#fff;border-radius:18px;overflow:hidden;font-family:Arial,sans-serif;color:#26372e"><div style="background:#173f32;padding:28px 32px;color:#fff"><div style="font-size:13px;letter-spacing:2px;color:#dcebe0">RECANTO DA DINDA</div><h1 style="font-size:24px;margin:12px 0 0">Cadastro recebido! 🐾</h1></div><div style="padding:32px"><p>Olá, ${tutorName}!</p><p>Recebemos o cadastro de <strong>${petName}</strong> e ele já está aguardando a análise da nossa equipe.</p><p>Assim que houver uma atualização, entraremos em contato por e-mail.</p><p style="margin-top:28px">Com carinho,<br><strong>Equipe Recanto da Dinda</strong></p></div></div>`
+  const tutorResult = await deliverBrevoEmail({
+    pet, guardian, recipient: guardian?.email, recipientName: guardian?.name,
+    event: 'registration_received', subject: `Recebemos o cadastro de ${pet.name}! 🐾`, htmlContent: base,
+    dedupeKey: `pet:${pet._id}:registration_received`,
+  })
+
+  const admins = await Admin.find({ role: { $in: ['admin', 'manager'] }, isActive: true }).select('name email').lean()
+  const adminResults = await Promise.all(admins.map((admin) => deliverBrevoEmail({
+    pet, guardian, recipient: admin.email, recipientName: admin.name,
+    event: 'new_registration_admin', subject: `Novo cadastro aguardando análise: ${pet.name}`,
+    htmlContent: `<div style="font-family:Arial,sans-serif;color:#26372e"><h2>Novo cadastro recebido</h2><p>Um novo pet foi cadastrado e aguarda análise no painel do Recanto da Dinda.</p><p><strong>Pet:</strong> ${petName}<br><strong>Tutor:</strong> ${tutorName}<br><strong>E-mail do tutor:</strong> ${escapeHtml(guardian?.email || 'Não informado')}</p><p>Acesse o painel administrativo para revisar o cadastro.</p></div>`,
+    dedupeKey: `pet:${pet._id}:new_registration_admin:${admin._id}`,
+  })))
+  if (!admins.length) console.warn('[BREVO] Nenhum admin/gerente ativo encontrado para aviso de novo cadastro.')
+  return { tutor: tutorResult, admins: adminResults }
 }
 
 export async function sendPetStatusEmail({ pet, guardian, status, notes = '' }) {
@@ -142,91 +201,4 @@ export async function sendPetApprovalWhatsApp({ pet, guardian, adminId }) {
 
 export async function listPetCommunications(petId) {
   return CommunicationLog.find({ pet: petId }).sort({ createdAt: -1 }).limit(50).populate('sentBy', 'name email')
-}
-
-
-// Confirmação automática enviada ao tutor após o cadastro ser salvo.
-export async function sendPetRegistrationReceivedEmail({ pet, guardian }) {
-  const event = 'pet_registered'
-  const recipient = guardian?.email || ''
-  const dedupeKey = `pet:${pet._id}:${event}`
-
-  if (!recipient) {
-    await saveLog({ pet: pet._id, guardian: guardian?._id, channel: 'email', event, recipient: 'não informado', status: 'skipped', provider: 'brevo', error: 'Tutor sem e-mail cadastrado.', dedupeKey })
-    return { status: 'skipped', reason: 'Tutor sem e-mail cadastrado.' }
-  }
-  if (!process.env.BREVO_API_KEY || !process.env.BREVO_SENDER_EMAIL) {
-    await saveLog({ pet: pet._id, guardian: guardian?._id, channel: 'email', event, recipient, status: 'skipped', provider: 'brevo', error: 'Brevo não configurado no ambiente.', dedupeKey })
-    return { status: 'skipped', reason: 'Brevo não configurado.' }
-  }
-
-  const tutorName = escapeHtml(guardian.name || 'Tutor')
-  const petName = escapeHtml(pet.name || 'seu pet')
-  const htmlContent = `<!doctype html><html lang="pt-BR"><body style="margin:0;background:#f5f7f3;padding:32px 12px;font-family:Arial,sans-serif;color:#26372e"><div style="max-width:600px;margin:auto;background:#fff;border-radius:18px;overflow:hidden"><div style="background:#173f32;padding:28px 32px;color:#fff"><div style="font-size:13px;letter-spacing:2px;color:#dcebe0">RECANTO DA DINDA</div><h1 style="font-size:24px;margin:12px 0 0">Cadastro recebido! 🐾</h1></div><div style="padding:32px"><p>Olá, ${tutorName}!</p><p>Recebemos com carinho o cadastro de <strong>${petName}</strong>.</p><p>Nossa equipe fará a análise das informações e dos documentos enviados. Assim que houver uma atualização, entraremos em contato.</p><p>Obrigado por confiar no Recanto da Dinda!</p><p style="margin-top:28px">Com carinho,<br><strong>Equipe Recanto da Dinda</strong></p></div><div style="padding:18px 32px;background:#f5f7f3;color:#718078;font-size:12px">Esta é uma mensagem automática de confirmação de cadastro.</div></div></body></html>`
-
-  try {
-    const response = await fetch(BREVO_ENDPOINT, {
-      method: 'POST',
-      headers: { accept: 'application/json', 'api-key': process.env.BREVO_API_KEY, 'content-type': 'application/json' },
-      signal: AbortSignal.timeout(10000),
-      body: JSON.stringify({
-        sender: { name: process.env.BREVO_SENDER_NAME || 'Recanto da Dinda', email: process.env.BREVO_SENDER_EMAIL },
-        to: [{ email: recipient, name: guardian.name || 'Tutor' }],
-        subject: `Recebemos o cadastro de ${pet.name} — Recanto da Dinda`,
-        htmlContent,
-        tags: ['recanto-dinda', event],
-      }),
-    })
-    const result = await response.json().catch(() => ({}))
-    if (!response.ok) throw new Error(result.message || `Brevo respondeu com HTTP ${response.status}.`)
-    await saveLog({ pet: pet._id, guardian: guardian?._id, channel: 'email', event, recipient, status: 'sent', provider: 'brevo', providerMessageId: result.messageId || '', dedupeKey })
-    return { status: 'sent', providerMessageId: result.messageId || '' }
-  } catch (error) {
-    await saveLog({ pet: pet._id, guardian: guardian?._id, channel: 'email', event, recipient, status: 'failed', provider: 'brevo', error: error.message, dedupeKey })
-    console.error('[BREVO] Falha ao enviar confirmação de cadastro:', error.message)
-    return { status: 'failed', reason: error.message }
-  }
-}
-
-// Aviso por e-mail para todos os administradores e gerentes ativos.
-export async function sendAdminNewPetRegistrationEmail({ pet, guardian }) {
-  const event = 'admin_new_registration'
-  const dedupeKey = `pet:${pet._id}:${event}`
-  if (!process.env.BREVO_API_KEY || !process.env.BREVO_SENDER_EMAIL) {
-    return { status: 'skipped', reason: 'Brevo não configurado.' }
-  }
-
-  const Admin = (await import('../models/Admin.js')).default
-  const admins = await Admin.find({ role: { $in: ['admin', 'manager'] }, isActive: true }).select('name email').lean()
-  const recipients = admins.filter((admin) => admin.email)
-  if (!recipients.length) return { status: 'skipped', reason: 'Nenhum administrador ou gerente ativo com e-mail.' }
-
-  const recipient = recipients.map((admin) => admin.email).join(',')
-  const petName = escapeHtml(pet.name || 'Pet')
-  const guardianName = escapeHtml(guardian?.name || 'Não informado')
-  const guardianEmail = escapeHtml(guardian?.email || 'Não informado')
-  const htmlContent = `<!doctype html><html lang="pt-BR"><body style="margin:0;background:#f5f7f3;padding:32px 12px;font-family:Arial,sans-serif;color:#26372e"><div style="max-width:600px;margin:auto;background:#fff;border-radius:18px;overflow:hidden"><div style="background:#173f32;padding:28px 32px;color:#fff"><div style="font-size:13px;letter-spacing:2px;color:#dcebe0">RECANTO DA DINDA · PAINEL ADMINISTRATIVO</div><h1 style="font-size:24px;margin:12px 0 0">Novo cadastro recebido 🐾</h1></div><div style="padding:32px"><p>Um novo cadastro está aguardando análise da equipe.</p><p><strong>Pet:</strong> ${petName}</p><p><strong>Tutor:</strong> ${guardianName}</p><p><strong>E-mail:</strong> ${guardianEmail}</p><p>Acesse o painel administrativo para revisar as informações e os documentos enviados.</p></div></div></body></html>`
-
-  try {
-    const response = await fetch(BREVO_ENDPOINT, {
-      method: 'POST',
-      headers: { accept: 'application/json', 'api-key': process.env.BREVO_API_KEY, 'content-type': 'application/json' },
-      signal: AbortSignal.timeout(10000),
-      body: JSON.stringify({
-        sender: { name: process.env.BREVO_SENDER_NAME || 'Recanto da Dinda', email: process.env.BREVO_SENDER_EMAIL },
-        to: recipients.map((admin) => ({ email: admin.email, name: admin.name })),
-        subject: `Novo cadastro aguardando análise: ${pet.name}`,
-        htmlContent,
-        tags: ['recanto-dinda', event],
-      }),
-    })
-    const result = await response.json().catch(() => ({}))
-    if (!response.ok) throw new Error(result.message || `Brevo respondeu com HTTP ${response.status}.`)
-    await saveLog({ pet: pet._id, guardian: guardian?._id, channel: 'email', event, recipient, status: 'sent', provider: 'brevo', providerMessageId: result.messageId || '', dedupeKey })
-    return { status: 'sent', providerMessageId: result.messageId || '' }
-  } catch (error) {
-    await saveLog({ pet: pet._id, guardian: guardian?._id, channel: 'email', event, recipient, status: 'failed', provider: 'brevo', error: error.message, dedupeKey })
-    console.error('[BREVO] Falha ao avisar equipe sobre novo cadastro:', error.message)
-    return { status: 'failed', reason: error.message }
-  }
 }
