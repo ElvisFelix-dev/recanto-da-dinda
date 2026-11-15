@@ -43,6 +43,11 @@ const guardianSchema = new mongoose.Schema(
       lowercase: true,
     },
 
+    passwordHash: { type: String, select: false, default: null },
+    accessCodeHash: { type: String, select: false, default: null },
+    accessCodeExpiresAt: { type: Date, default: null },
+    accessCodeAttempts: { type: Number, default: 0 },
+
     whatsappConsent: {
       status: { type: String, enum: ['unknown', 'granted', 'denied'], default: 'unknown' },
       grantedAt: { type: Date, default: null },

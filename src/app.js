@@ -5,6 +5,8 @@ import helmet from 'helmet'
 import petRegistrationRoutes from './routes/petRegistration.routes.js'
 import adminAuthRoutes from './routes/adminAuth.routes.js'
 import adminRoutes from './routes/admin.routes.js'
+import hotelRoutes from './routes/hotel.routes.js'
+import guardianRoutes from './routes/guardian.routes.js'
 
 const app = express()
 
@@ -61,6 +63,12 @@ app.get('/', (req, res) => {
 
 // Cadastro público de tutores e pets (multipart/form-data)
 app.use('/api/pet-registrations', petRegistrationRoutes)
+
+// Solicitações públicas de hospedagem
+app.use('/api/hotel', hotelRoutes)
+
+// Autenticação e portal do tutor
+app.use('/api/guardian', guardianRoutes)
 
 // Login administrativo
 app.use('/api/admin/auth', adminAuthRoutes)

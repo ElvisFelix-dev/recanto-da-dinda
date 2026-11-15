@@ -76,4 +76,30 @@ export function uploadPetVaccinationCards(req, res, next) {
   })
 }
 
+
+const hotelUpload = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024, files: 5 },
+  fileFilter: (req, file, callback) => {
+    if (file.fieldname !== 'vaccinationCards' || !allowedMimeTypes.has(file.mimetype)) {
+      return callback(new Error('Documento inválido. Envie JPG, PNG, WebP ou PDF.'))
+    }
+    callback(null, true)
+  },
+})
+
+export function uploadHotelVaccinationCards(req, res, next) {
+  hotelUpload.array('vaccinationCards', 5)(req, res, (error) => {
+    if (!error) return next()
+    if (error instanceof multer.MulterError) {
+      const statusCode = error.code === 'LIMIT_FILE_SIZE' ? 413 : 400
+      return res.status(statusCode).json({
+        success: false,
+        message: error.code === 'LIMIT_FILE_SIZE' ? 'Cada arquivo deve ter no máximo 10 MB.' : 'Não foi possível processar os arquivos enviados.',
+      })
+    }
+    return res.status(400).json({ success: false, message: error.message || 'Arquivo inválido.' })
+  })
+}
+
 export { cloudinary }

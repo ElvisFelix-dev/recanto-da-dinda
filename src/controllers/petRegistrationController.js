@@ -17,6 +17,7 @@ async function removeUploadedFiles(files = []) {
 }
 
 export async function createPetRegistration(req, res, next) {
+  let registrationPersisted = false
   const uploadedFiles = [
     ...(req.files?.vaccinationCards || []),
     ...(req.files?.avatar || []),
@@ -93,6 +94,7 @@ export async function createPetRegistration(req, res, next) {
           : undefined,
       },
     })
+    registrationPersisted = true
 
     await notifyAdminRoles({
       roles: ['admin', 'manager'],
@@ -127,7 +129,9 @@ export async function createPetRegistration(req, res, next) {
       },
     })
   } catch (error) {
-    await removeUploadedFiles(uploadedFiles)
+    // Preserve arquivos já associados a um cadastro salvo. Erros em etapas
+    // posteriores (por exemplo, uma consulta auxiliar) não devem quebrar essa associação.
+    if (!registrationPersisted) await removeUploadedFiles(uploadedFiles)
 
     if (error.code === 11000) {
       return res.status(409).json({

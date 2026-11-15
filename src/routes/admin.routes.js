@@ -20,6 +20,8 @@ import {
 import { getAuditLogs } from '../controllers/adminAuditController.js'
 import { listNotifications, markNotificationRead, markAllNotificationsRead, getPushPublicKey, subscribePush, unsubscribePush } from '../controllers/adminNotificationController.js'
 import { getPetCommunications, sendApprovalWhatsApp } from '../controllers/adminCommunicationController.js'
+import { adminGetHotelBooking, adminListHotelBookings, adminUpdateHotelBooking } from '../controllers/hotelBookingController.js'
+import { checkInPet, checkOutPet, listAttendance, listAttendanceRoster, checkInPetsBatch, checkOutAttendanceBatch } from '../controllers/attendanceController.js'
 import {
   getReportOverview,
   exportRegistrationsCsv,
@@ -40,6 +42,17 @@ router.delete('/notifications/push/subscribe', unsubscribePush)
 // Comunicação com tutores.
 router.get('/pet-registrations/:id/communications', getPetCommunications)
 router.post('/pet-registrations/:id/whatsapp-approval', sendApprovalWhatsApp)
+
+// Gestão de hospedagens e frequência: administrador e gerente.
+router.get('/hotel/bookings', requireRole('admin', 'manager'), adminListHotelBookings)
+router.get('/hotel/bookings/:id', requireRole('admin', 'manager'), adminGetHotelBooking)
+router.patch('/hotel/bookings/:id/status', requireRole('admin', 'manager'), adminUpdateHotelBooking)
+router.get('/attendance', requireRole('admin', 'manager'), listAttendance)
+router.get('/attendance/roster', requireRole('admin', 'manager'), listAttendanceRoster)
+router.post('/attendance/check-in-batch', requireRole('admin', 'manager'), checkInPetsBatch)
+router.post('/attendance/check-out-batch', requireRole('admin', 'manager'), checkOutAttendanceBatch)
+router.post('/pets/:petId/check-in', requireRole('admin', 'manager'), checkInPet)
+router.patch('/attendance/:id/check-out', requireRole('admin', 'manager'), checkOutPet)
 
 // Gestão de cadastros e pets: administrador e gerente.
 router.get('/pet-registrations', listRegistrations)

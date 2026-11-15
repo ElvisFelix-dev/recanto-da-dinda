@@ -1,13 +1,14 @@
 {
   "name": "api",
-  "version": "1.0.0",
-  "description": "API para setor imobiliario",
+  "version": "2.0.0",
+  "description": "API de gestão do Recanto da Dinda",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --test",
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
-    "admin:create": "node src/scripts/createAdmin.js"
+    "admin:create": "node src/scripts/createAdmin.js",
+    "check": "node --check src/server.js && node --check src/app.js"
   },
   "keywords": [],
   "author": "Elvis Felix",
