@@ -7,6 +7,7 @@ import adminAuthRoutes from './routes/adminAuth.routes.js'
 import adminRoutes from './routes/admin.routes.js'
 import hotelRoutes from './routes/hotel.routes.js'
 import guardianRoutes from './routes/guardian.routes.js'
+import { testimonialPublicRoutes, testimonialAdminRoutes } from './routes/testimonial.routes.js'
 
 const app = express()
 
@@ -61,6 +62,9 @@ app.get('/', (req, res) => {
   })
 })
 
+// Depoimentos públicos (somente aprovados e sem dados do tutor).
+app.use('/api/testimonials', testimonialPublicRoutes)
+
 // Cadastro público de tutores e pets (multipart/form-data)
 app.use('/api/pet-registrations', petRegistrationRoutes)
 
@@ -74,6 +78,7 @@ app.use('/api/guardian', guardianRoutes)
 app.use('/api/admin/auth', adminAuthRoutes)
 
 // Rotas administrativas protegidas
+app.use('/api/admin/testimonials', testimonialAdminRoutes)
 app.use('/api/admin', adminRoutes)
 
 app.use((req, res) => {
