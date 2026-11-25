@@ -1,5 +1,6 @@
 import mongoose from 'mongoose'
 import { logAudit } from '../services/auditService.js'
+import { notifyAdminRoles } from '../services/notificationService.js'
 import {
   changeTestimonialStatus,
   createGuardianTestimonial,
@@ -92,6 +93,22 @@ export async function guardianCreateTestimonial(req, res, next) {
       guardianId: req.guardian._id,
       body: req.body,
     })
+
+    // A notificação é complementar: falhas no serviço de avisos não impedem
+    // o envio do depoimento pelo tutor.
+    await notifyAdminRoles({
+      roles: ['admin', 'manager'],
+      title: 'Novo depoimento recebido',
+      message: `${item.pet?.name || 'Um pet'} recebeu um novo depoimento aguardando análise.`,
+      type: 'new_testimonial',
+      entityType: 'testimonial',
+      entityId: item._id,
+      link: '/admin/depoimentos',
+      dedupeKey: `testimonial:new:${item._id}`,
+    }).catch((notificationError) => {
+      console.error('[NOTIFICATIONS] Não foi possível notificar a equipe sobre o novo depoimento:', notificationError.message)
+    })
+
     return res.status(201).json({
       success: true,
       message: 'Depoimento enviado para análise. Assim que for aprovado, poderá aparecer no site.',
