@@ -8,12 +8,24 @@ import { connectDatabase } from './config/database.js'
 import { setSocketServer } from './config/socket.js'
 import Admin from './models/Admin.js'
 
+import { startHotelBookingScheduler } from './jobs/hotelBookingScheduler.js'
+
 const PORT = process.env.PORT || 3333
 
 function getAllowedOrigins() {
-  return [process.env.CLIENT_URL, ...(process.env.ALLOWED_ORIGINS || '').split(','), 'http://localhost:5173']
+  return [
+    process.env.CLIENT_URL,
+    ...(process.env.ALLOWED_ORIGINS || '').split(','),
+    'http://localhost:5173',
+  ]
     .filter(Boolean)
-    .map((value) => { try { return new URL(value.trim()).origin } catch { return null } })
+    .map((value) => {
+      try {
+        return new URL(value.trim()).origin
+      } catch {
+        return null
+      }
+    })
     .filter(Boolean)
 }
 
@@ -21,18 +33,28 @@ async function startServer() {
   try {
     await connectDatabase()
 
+    startHotelBookingScheduler()
+
     const httpServer = createServer(app)
     const io = new Server(httpServer, {
-      cors: { origin: getAllowedOrigins(), methods: ['GET', 'POST'], credentials: true },
+      cors: {
+        origin: getAllowedOrigins(),
+        methods: ['GET', 'POST'],
+        credentials: true,
+      },
     })
 
     io.use(async (socket, next) => {
       try {
         const token = socket.handshake.auth?.token
-        if (!token || !process.env.JWT_SECRET) return next(new Error('Autenticação necessária.'))
+        if (!token || !process.env.JWT_SECRET)
+          return next(new Error('Autenticação necessária.'))
         const decoded = jwt.verify(token, process.env.JWT_SECRET)
-        const admin = await Admin.findById(decoded.sub).select('_id role isActive')
-        if (!admin || !admin.isActive) return next(new Error('Sessão administrativa inválida.'))
+        const admin = await Admin.findById(decoded.sub).select(
+          '_id role isActive',
+        )
+        if (!admin || !admin.isActive)
+          return next(new Error('Sessão administrativa inválida.'))
         socket.data.admin = { id: admin._id.toString(), role: admin.role }
         return next()
       } catch {
